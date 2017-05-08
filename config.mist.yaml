@@ -1,0 +1,8 @@
+---
+workflow_name: create_vm_using_jinja
+description: This is a test description
+minion_nodes: 3
+master_nodes: 1
+vm_name_prefix: my_test ## To Do
+master_script: https://gist.githubusercontent.com/mohi048/0f0354212848d359884f20511dea15b9/raw/b00238dec976eae7c89ca8315344285eae893ee5/kubernetes_setup_master.sh
+minion_script: https://gist.githubusercontent.com/mohi048/298f33e4be9acd06e054e3f4b154a4b8/raw/f8697fbbdfb109887715a9bbd6b14594db560089/kubernetes_setup_minion.sh

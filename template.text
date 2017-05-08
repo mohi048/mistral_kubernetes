@@ -1,0 +1,137 @@
+version: '2.0'
+
+{{ config['workflow_name'] }}:
+  description: {{ config['description'] }}
+  type: direct
+
+  input:
+    - vm_name
+    - image_ref
+    - flavor_ref
+    - private_net_id
+    - username
+    - password
+
+  output:
+{%- for master in range(config['master_nodes']) %}
+    ip-master-{{ master }}: <% $.ip_interface_list_master{{master}} %>
+{%- endfor %}
+{%- for minion in range(config['minion_nodes']) %}
+    ip-minion-{{ minion }}: <% $.ip_interface_list_minion{{minion}} %>
+{%- endfor %}
+
+  tasks:
+
+
+{%- for num in range(config['master_nodes']) %}
+
+    create_server_master{{ num }}:
+      action: nova.servers_create
+      input:
+        name: <% $.vm_name+"-master-{{ num }}" %>
+        image: <% $.image_ref %>
+        flavor: <% $.flavor_ref %>
+        nics: [ "net-id": <% $.private_net_id %> ]
+        userdata: "#cloud-config \npassword: winterwonderland \nchpasswd: { expire: False } \nssh_pwauth: True"
+      publish:
+        vm_id_master{{num}}: <% $.create_server_master{{ num }}.id %>
+      on-success:
+        - wait_for_instance_master{{ num }}
+
+    wait_for_instance_master{{ num }}:
+     action: nova.servers_find id=<% $.vm_id_master{{num}} %> status='ACTIVE'
+     retry:
+        delay: 5
+        count: 15
+     on-success:
+        - get_interface_list_master{{ num }}
+
+    get_interface_list_master{{ num }}:
+      action : nova.servers_interface_list server=<% $.vm_id_master{{num}} %>
+      publish:
+        ip_interface_list_master{{ num }}: <% $.get_interface_list_master{{ num }}[0]['fixed_ips'][0]['ip_address'] %>
+      on-success : ssh_to_machine_master{{ num }}
+
+    ssh_to_machine_master{{ num }}:
+      action: std.ssh
+      retry:
+        delay: 5
+        count: 15
+      input:
+         cmd: "curl -O {{ config['master_script'] }} && sudo sh -e {{ config['master_script_name'] }} <% $.ip_interface_list_master{{ num }} %> > /dev/null"
+         host: <% $.ip_interface_list_master{{num}} %>
+         username:  <% $.username %>
+         password: <% $.password %>
+{%- if num == 1 %}
+
+
+{%- elif num <  config['master_nodes']-1 %}
+      on-success:
+        - create_server_master{{ num+1 }}
+
+{%- elif config['minion_nodes'] == 0 %}
+
+{%- else %}
+      on-success:
+{%- for minion_num1 in range(config['minion_nodes']) %}
+        - create_server_minion{{ minion_num1 }}
+{%- endfor %}
+{%- endif %}
+{%- endfor %}
+
+
+
+
+
+{%- for num in range(config['minion_nodes']) %}
+{%- for master_ip in range(config['master_nodes']) %}
+
+
+
+    create_server_minion{{ num }}:
+      action: nova.servers_create
+      input:
+        name: <% $.vm_name+"-minion-{{ num }}" %>
+        image: <% $.image_ref %>
+        flavor: <% $.flavor_ref %>
+        nics: [ "net-id": <% $.private_net_id %> ]
+        userdata: "#cloud-config \npassword: winterwonderland \nchpasswd: { expire: False } \nssh_pwauth: True"
+      publish:
+        vm_id_minion{{num}}: <% $.create_server_minion{{ num }}.id %>
+      on-success:
+        - wait_for_instance_minion{{ num }}
+
+    wait_for_instance_minion{{ num }}:
+     action: nova.servers_find id=<% $.vm_id_minion{{num}} %> status='ACTIVE'
+     retry:
+        delay: 5
+        count: 15
+     on-success:
+        - get_interface_list_minion{{ num }}
+
+    get_interface_list_minion{{ num }}:
+      action : nova.servers_interface_list server=<% $.vm_id_minion{{num}} %>
+      publish:
+        ip_interface_list_minion{{ num }}: <% $.get_interface_list_minion{{ num }}[0]['fixed_ips'][0]['ip_address'] %>
+      on-success : ssh_to_machine_minion{{ num }}
+
+    ssh_to_machine_minion{{ num }}:
+      action: std.ssh
+      retry:
+        delay: 5
+        count: 15
+      input:
+         cmd: "curl -O {{ config['minion_script'] }} && sudo sh -e {{ config['minion_script_name'] }} <% $.ip_interface_list_master{{ master_ip }} %> <% $.ip_interface_list_minion{{ num }} %> > /dev/null"
+         host: <% $.ip_interface_list_minion{{num}} %>
+         username:  <% $.username %>
+         password: <% $.password %>
+
+{%- if num <  config['minion_nodes']-1 %}
+      on-success:
+        - create_server_minion{{ num+1 }}
+
+
+{%- else %}
+{%- endif %}
+{%- endfor %}
+{%- endfor %}
